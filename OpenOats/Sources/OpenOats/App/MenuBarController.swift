@@ -1,4 +1,5 @@
 import AppKit
+import EventKit
 import Observation
 import SwiftUI
 
@@ -26,6 +27,9 @@ final class MenuBarController {
     private let onToggleMeeting: () -> Void
     private lazy var statusItemActionTarget = MenuBarStatusItemActionTarget(controller: self)
     private var iconUpdateTask: Task<Void, Never>?
+    private let meetings: MenuBarMeetingsModel
+    private var refreshTickTask: Task<Void, Never>?
+    private var calendarChangeTask: Task<Void, Never>?
     private var hasConfiguredButton = false
 
     var onShowMainWindow: (() -> Void)?
@@ -34,14 +38,17 @@ final class MenuBarController {
     init(
         coordinator: AppCoordinator,
         settings: AppSettings,
+        upcomingEvents: @escaping () -> [CalendarEvent],
         onCheckForUpdates: @escaping () -> Void,
-        onToggleMeeting: @escaping () -> Void
+        onToggleMeeting: @escaping () -> Void,
+        onJoinEvent: @escaping (CalendarEvent) -> Void
     ) {
         self.coordinator = coordinator
         self.settings = settings
         self.onToggleMeeting = onToggleMeeting
+        self.meetings = MenuBarMeetingsModel(provider: upcomingEvents)
 
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.popover = NSPopover()
         popover.contentSize = NSSize(width: 280, height: 160)
         popover.behavior = .transient
@@ -50,6 +57,11 @@ final class MenuBarController {
         let popoverView = MenuBarPopoverView(
             coordinator: coordinator,
             settings: settings,
+            meetings: meetings,
+            onJoinEvent: { [weak self] event in
+                self?.popover.performClose(nil)
+                onJoinEvent(event)
+            },
             onToggleMeeting: onToggleMeeting,
             onShowMainWindow: { [weak self] in
                 self?.popover.performClose(nil)
@@ -74,16 +86,22 @@ final class MenuBarController {
         refreshStatusItem()
 
         startIconObservation()
+        startRefreshTick()
+        startCalendarChangeObservation()
     }
 
     deinit {
         iconUpdateTask?.cancel()
+        refreshTickTask?.cancel()
+        calendarChangeTask?.cancel()
     }
 
     func togglePopoverFromStatusItem() {
         if popover.isShown {
             popover.performClose(nil)
         } else if let button = statusItem.button {
+            meetings.refresh()
+            updateIcon()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
@@ -92,11 +110,16 @@ final class MenuBarController {
         iconUpdateTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
+                meetings.refresh()
                 updateIcon()
                 await withCheckedContinuation { continuation in
                     withObservationTracking {
                         _ = self.coordinator.isRecording
                         _ = self.settings.showMenuBarIcon
+                        _ = self.settings.showNextMeetingInMenuBar
+                        _ = self.settings.calendarIntegrationEnabled
+                        _ = self.settings.excludedCalendarIDs
+                        _ = self.meetings.refreshToken
                     } onChange: {
                         continuation.resume()
                     }
@@ -105,11 +128,45 @@ final class MenuBarController {
         }
     }
 
+    /// Wakes just after each wall-clock minute so the countdown changes on the minute.
+    private func startRefreshTick() {
+        refreshTickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let secondsIntoMinute = Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+                try? await Task.sleep(for: .seconds(60 - secondsIntoMinute + 0.5))
+                guard !Task.isCancelled else { break }
+                self?.meetings.requestRefresh()
+            }
+        }
+    }
+
+    private func startCalendarChangeObservation() {
+        calendarChangeTask = Task { [weak self] in
+            let changes = NotificationCenter.default
+                .notifications(named: .EKEventStoreChanged)
+                .map { _ in () }
+            for await _ in changes {
+                self?.meetings.requestRefresh()
+            }
+        }
+    }
+
     private func updateIcon() {
         statusItem.isVisible = settings.showMenuBarIcon
         refreshStatusItem()
-        statusItem.button?.image = Self.makeConcentricCirclesIcon(filled: coordinator.isRecording)
-        statusItem.button?.image?.isTemplate = true
+        guard let button = statusItem.button else { return }
+
+        button.image = Self.makeConcentricCirclesIcon(filled: coordinator.isRecording)
+        button.image?.isTemplate = true
+
+        let text = MenuBarNextMeeting.statusItemText(
+            featured: meetings.featuredEvent,
+            now: meetings.now,
+            isRecording: coordinator.isRecording,
+            isEnabled: settings.showNextMeetingInMenuBar && settings.calendarIntegrationEnabled
+        )
+        button.title = text.map { " \($0)" } ?? ""
+        button.imagePosition = text == nil ? .imageOnly : .imageLeading
     }
 
     func refreshStatusItem() {

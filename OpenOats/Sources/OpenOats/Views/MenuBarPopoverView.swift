@@ -3,6 +3,8 @@ import SwiftUI
 struct MenuBarPopoverView: View {
     let coordinator: AppCoordinator
     let settings: AppSettings
+    let meetings: MenuBarMeetingsModel
+    let onJoinEvent: (CalendarEvent) -> Void
     let onToggleMeeting: () -> Void
     let onShowMainWindow: () -> Void
     let onCheckForUpdates: () -> Void
@@ -27,6 +29,13 @@ struct MenuBarPopoverView: View {
                 .padding(.bottom, 10)
 
             Divider()
+
+            if settings.calendarIntegrationEnabled, !meetings.events.isEmpty {
+                upcomingSection
+                    .padding(.vertical, 6)
+
+                Divider()
+            }
 
             primaryAction
                 .padding(.horizontal, 16)
@@ -148,6 +157,70 @@ struct MenuBarPopoverView: View {
             .buttonStyle(OpenOatsProminentButtonStyle())
             .controlSize(.regular)
         }
+    }
+
+    private var upcomingSection: some View {
+        let sections = MenuBarNextMeeting.listSections(
+            for: meetings.events,
+            featured: meetings.featuredEvent,
+            now: meetings.now
+        )
+
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(sections) { section in
+                Text(sectionTitle(for: section))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+
+                ForEach(section.events, id: \.self) { event in
+                    let help = MenuBarNextMeeting.rowHelp(for: event, isRecording: coordinator.isRecording)
+                    Button(action: { onJoinEvent(event) }) {
+                        eventRow(event)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(help == nil)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 5)
+                    .help(help ?? "")
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(for section: MenuBarNextMeeting.ListSection) -> String {
+        section.header
+            ?? UpcomingCalendarGrouping.DayGroup(date: section.day, events: section.events).sectionTitle
+    }
+
+    private func eventRow(_ event: CalendarEvent) -> some View {
+        HStack(spacing: 8) {
+            if event.meetingURL != nil {
+                Image(systemName: "video.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tint)
+                    .frame(width: 16)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(event.title)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(timeRange(for: event))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func timeRange(for event: CalendarEvent) -> String {
+        let start = event.startDate.formatted(date: .omitted, time: .shortened)
+        let end = event.endDate.formatted(date: .omitted, time: .shortened)
+        return "\(start) – \(end)"
     }
 
     private var formattedTime: String {

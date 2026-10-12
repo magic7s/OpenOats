@@ -353,11 +353,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let controller = MenuBarController(
             coordinator: coordinator,
             settings: settings,
+            upcomingEvents: { [weak self] in
+                self?.menuBarUpcomingEvents() ?? []
+            },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdatesAction?()
             },
             onToggleMeeting: { [weak self] in
                 self?.toggleMeeting()
+            },
+            onJoinEvent: { [weak self] event in
+                self?.joinAndRecord(event)
             }
         )
         controller.onShowMainWindow = { [weak self] in
@@ -607,6 +613,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// Events for the menu bar readout. Runs on a background tick, so it only
+    /// ever uses the passive calendar path and can never raise a permission dialog.
+    private func menuBarUpcomingEvents() -> [CalendarEvent] {
+        guard let settings, settings.calendarIntegrationEnabled, let container else { return [] }
+        container.ensureCalendarIntegrationReady(enabled: true)
+        guard let manager = container.calendarManager else { return [] }
+
+        return manager.events(
+            overlapping: DateInterval(start: Date(), duration: MenuBarNextMeeting.listWindow),
+            excludingCalendarIDs: settings.excludedCalendarIDs
+        )
+    }
+
     func toggleMeeting() {
         guard let coordinator, let settings else { return }
         guard settings.hasAcknowledgedRecordingConsent else { return }
@@ -622,6 +641,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 )
                 : nil
             coordinator.handle(.userStarted(.manual(calendarEvent: calEvent)), settings: settings)
+        }
+    }
+
+    /// Opens the event's meeting link and starts a recording bound to that event.
+    /// `MenuBarNextMeeting.joinPlan` decides which of those happen.
+    func joinAndRecord(_ event: CalendarEvent) {
+        guard let coordinator, let settings else { return }
+
+        let plan = MenuBarNextMeeting.joinPlan(
+            for: event,
+            isRecording: coordinator.isRecording,
+            isFinishingRecording: isFinishingRecording(coordinator),
+            hasRecordingConsent: settings.hasAcknowledgedRecordingConsent
+        )
+
+        if let url = plan.urlToOpen {
+            NSWorkspace.shared.open(url)
+        }
+        if plan.showsMainWindow {
+            showMainWindow()
+        }
+        guard plan.startsRecording else { return }
+
+        // Start through the live session controller, the same path the main
+        // window uses: it validates cloud transcription credentials before the
+        // app enters the recording state.
+        let prepNotes = settings.meetingPrepNotes(for: event)
+        let scratchpad = prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
+
+        guard let controller = coordinator.liveSessionController else {
+            // The controller is created by the main window; queue the start for it.
+            coordinator.queueExternalCommand(.startSession(calendarEvent: event, scratchpadSeed: scratchpad))
+            showMainWindow()
+            return
+        }
+
+        container?.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
+        controller.startSession(settings: settings, calendarEventOverride: event, initialScratchpad: scratchpad)
+        showMainWindowIfStartFails(controller: controller, coordinator: coordinator)
+    }
+
+    /// A start requested from the menu bar can fail with nothing on screen to
+    /// say so (credentials rejected, or the previous recording still finishing).
+    /// Once the start attempt settles, bring up the main window if no recording
+    /// is running, since that is where the reason is shown.
+    private func showMainWindowIfStartFails(controller: LiveSessionController, coordinator: AppCoordinator) {
+        Task { @MainActor [weak self, weak controller] in
+            let deadline = Date().addingTimeInterval(30)
+            while controller?.isStartInFlight == true, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard !coordinator.isRecording else { return }
+            self?.showMainWindow()
+        }
+    }
+
+    private func isFinishingRecording(_ coordinator: AppCoordinator) -> Bool {
+        if case .ending = coordinator.state { return true }
+        return false
+    }
+
+    private func showMainWindow() {
+        if let action = showMainWindowAction {
+            action()
+        } else {
+            fallbackShowMainWindow()
         }
     }
 
