@@ -516,13 +516,6 @@ private struct TranscriptionSettingsTab: View {
                     Text("When hidden, open OpenOats from Finder, Spotlight or the Dock to bring back its window.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-
-                    Toggle("Show next meeting in menu bar", isOn: $settings.showNextMeetingInMenuBar)
-                        .font(.system(size: 12))
-                        .disabled(!settings.showMenuBarIcon || !settings.calendarIntegrationEnabled)
-                    Text("Shows the title and time for a meeting that is running or starts within the hour. Needs Calendar turned on.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
                 }
 
                 Section("Transcription") {

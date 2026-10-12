@@ -28,6 +28,7 @@ struct CalendarSettingsTab: View {
                     switch accessState {
                     case .authorized:
                         calendarsCard
+                        menuBarCard
                         cloudSharingCard
                     case .denied, .notDetermined:
                         EmptyView()
@@ -142,6 +143,23 @@ struct CalendarSettingsTab: View {
             }
 
             accessDetail
+        }
+    }
+
+    private var menuBarCard: some View {
+        settingsCard {
+            Text("Menu Bar")
+                .font(.system(size: 15, weight: .semibold))
+
+            Toggle("Show next meeting in menu bar", isOn: $settings.showNextMeetingInMenuBar)
+                .font(.system(size: 12))
+                .disabled(!settings.showMenuBarIcon)
+
+            Text(settings.showMenuBarIcon
+                ? "Shows the title and time for a meeting that is running or starts within the hour."
+                : "The menu bar icon is hidden. Turn it on in Transcription settings to use this.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
     }
 
