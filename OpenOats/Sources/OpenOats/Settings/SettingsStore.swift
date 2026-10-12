@@ -1592,7 +1592,7 @@ final class SettingsStore {
         self._autoRecordDetectedMeetings = defaults.bool(forKey: "autoRecordDetectedMeetings")
         self._showMiniBar = defaults.object(forKey: "showMiniBar") as? Bool ?? true
         self._showMenuBarIcon = defaults.object(forKey: "showMenuBarIcon") as? Bool ?? true
-        self._showNextMeetingInMenuBar = defaults.object(forKey: "showNextMeetingInMenuBar") as? Bool ?? true
+        self._showNextMeetingInMenuBar = defaults.object(forKey: "showNextMeetingInMenuBar") as? Bool ?? false
         self._customMeetingAppBundleIDs = Self.normalizedIdentifierList(
             defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? [],
             caseInsensitive: true
