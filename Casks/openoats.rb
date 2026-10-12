@@ -13,7 +13,8 @@ cask "openoats" do
   end
 
   auto_updates true
-  depends_on macos: ">= 14.2"
+  # Homebrew uses major releases; the app bundle requires macOS 14.2+.
+  depends_on macos: :sonoma
 
   app "OpenOats.app"
 
