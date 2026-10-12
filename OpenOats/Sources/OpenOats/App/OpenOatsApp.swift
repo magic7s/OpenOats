@@ -361,6 +361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             },
             onToggleMeeting: { [weak self] in
                 self?.toggleMeeting()
+            },
+            onJoinEvent: { [weak self] event in
+                self?.joinAndRecord(event)
             }
         )
         controller.onShowMainWindow = { [weak self] in
@@ -639,6 +642,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 : nil
             coordinator.handle(.userStarted(.manual(calendarEvent: calEvent)), settings: settings)
         }
+    }
+
+    /// Opens the event's meeting link and starts a recording bound to that event.
+    /// `MenuBarNextMeeting.joinPlan` decides which of those happen.
+    func joinAndRecord(_ event: CalendarEvent) {
+        guard let coordinator, let settings else { return }
+
+        let plan = MenuBarNextMeeting.joinPlan(
+            for: event,
+            isRecording: coordinator.isRecording,
+            hasRecordingConsent: settings.hasAcknowledgedRecordingConsent
+        )
+
+        if let url = plan.urlToOpen {
+            NSWorkspace.shared.open(url)
+        }
+        if plan.showsMainWindow {
+            if let action = showMainWindowAction {
+                action()
+            } else {
+                fallbackShowMainWindow()
+            }
+        }
+        guard plan.startsRecording else { return }
+
+        container?.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
+        coordinator.handle(
+            .userStarted(.manual(calendarEvent: event, calendarEventIsUserChosen: true)),
+            settings: settings
+        )
     }
 
     // MARK: - Quit

@@ -40,7 +40,8 @@ final class MenuBarController {
         settings: AppSettings,
         upcomingEvents: @escaping () -> [CalendarEvent],
         onCheckForUpdates: @escaping () -> Void,
-        onToggleMeeting: @escaping () -> Void
+        onToggleMeeting: @escaping () -> Void,
+        onJoinEvent: @escaping (CalendarEvent) -> Void
     ) {
         self.coordinator = coordinator
         self.settings = settings
@@ -56,6 +57,11 @@ final class MenuBarController {
         let popoverView = MenuBarPopoverView(
             coordinator: coordinator,
             settings: settings,
+            meetings: meetings,
+            onJoinEvent: { [weak self] event in
+                self?.popover.performClose(nil)
+                onJoinEvent(event)
+            },
             onToggleMeeting: onToggleMeeting,
             onShowMainWindow: { [weak self] in
                 self?.popover.performClose(nil)
