@@ -353,6 +353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let controller = MenuBarController(
             coordinator: coordinator,
             settings: settings,
+            upcomingEvents: { [weak self] in
+                self?.menuBarUpcomingEvents() ?? []
+            },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdatesAction?()
             },
@@ -605,6 +608,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             return event
         }
+    }
+
+    /// Events for the menu bar readout. Runs on a background tick, so it only
+    /// ever uses the passive calendar path and can never raise a permission dialog.
+    private func menuBarUpcomingEvents() -> [CalendarEvent] {
+        guard let settings, settings.calendarIntegrationEnabled, let container else { return [] }
+        container.ensureCalendarIntegrationReady(enabled: true)
+        guard let manager = container.calendarManager else { return [] }
+
+        return manager.events(
+            overlapping: DateInterval(start: Date(), duration: MenuBarNextMeeting.listWindow),
+            excludingCalendarIDs: settings.excludedCalendarIDs
+        )
     }
 
     func toggleMeeting() {
