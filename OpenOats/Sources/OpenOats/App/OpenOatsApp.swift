@@ -659,19 +659,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSWorkspace.shared.open(url)
         }
         if plan.showsMainWindow {
-            if let action = showMainWindowAction {
-                action()
-            } else {
-                fallbackShowMainWindow()
-            }
+            showMainWindow()
         }
         guard plan.startsRecording else { return }
 
+        // Start through the live session controller, the same path the main
+        // window uses: it validates cloud transcription credentials before the
+        // app enters the recording state.
+        let prepNotes = settings.meetingPrepNotes(for: event)
+        let scratchpad = prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
+
+        guard let controller = coordinator.liveSessionController else {
+            // The controller is created by the main window; queue the start for it.
+            coordinator.queueExternalCommand(.startSession(calendarEvent: event, scratchpadSeed: scratchpad))
+            showMainWindow()
+            return
+        }
+
         container?.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
-        coordinator.handle(
-            .userStarted(.manual(calendarEvent: event, calendarEventIsUserChosen: true)),
-            settings: settings
-        )
+        controller.startSession(settings: settings, calendarEventOverride: event, initialScratchpad: scratchpad)
+        showMainWindowIfStartFails(controller: controller, coordinator: coordinator)
+    }
+
+    /// A start requested from the menu bar can fail with nothing on screen to
+    /// say so (credentials rejected, or the previous recording still finishing).
+    /// Once the start attempt settles, bring up the main window if no recording
+    /// is running, since that is where the reason is shown.
+    private func showMainWindowIfStartFails(controller: LiveSessionController, coordinator: AppCoordinator) {
+        Task { @MainActor [weak self, weak controller] in
+            let deadline = Date().addingTimeInterval(30)
+            while controller?.isStartInFlight == true, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard !coordinator.isRecording else { return }
+            self?.showMainWindow()
+        }
+    }
+
+    private func showMainWindow() {
+        if let action = showMainWindowAction {
+            action()
+        } else {
+            fallbackShowMainWindow()
+        }
     }
 
     // MARK: - Quit
