@@ -18,11 +18,29 @@ class ReleaseMacOSMetadataTests(unittest.TestCase):
             subprocess.run(command, env={**os.environ, 'CASK_PATH': str(cask)}, check=True)
             return cask.read_text()
 
-    def test_sonoma_release_uses_its_actual_minimum(self):
-        self.assertIn('depends_on macos: ">= 14.2"', self.update('14.2'))
+    def test_sonoma_release_uses_homebrew_release_symbol(self):
+        self.assertIn('depends_on macos: :sonoma', self.update('14.2'))
 
     def test_historical_release_keeps_its_higher_minimum(self):
-        self.assertIn('depends_on macos: ">= 15.0"', self.update('15.0'))
+        self.assertIn('depends_on macos: :sequoia', self.update('15.0'))
+
+    def test_patch_version_uses_homebrew_release_symbol(self):
+        self.assertIn('depends_on macos: :tahoe', self.update('26.1.2'))
+
+    def test_unknown_release_is_rejected_without_changing_cask(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cask = Path(directory) / 'openoats.rb'
+            original = (ROOT / 'Casks/openoats.rb').read_text()
+            cask.write_text(original)
+            result = subprocess.run(
+                ['bash', str(ROOT / 'scripts/update_homebrew_cask.sh'),
+                 '9.9.9', '0' * 64, '99.0'],
+                env={**os.environ, 'CASK_PATH': str(cask)},
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Unsupported minimum macOS version', result.stderr)
+            self.assertEqual(cask.read_text(), original)
 
     def test_legacy_two_argument_call_keeps_existing_requirement(self):
         source = (ROOT / 'Casks/openoats.rb').read_text()

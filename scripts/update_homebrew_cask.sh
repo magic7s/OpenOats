@@ -24,7 +24,16 @@ contents.sub!(/version\s+"[^"]+"/, %(version "#{version}"))
 contents.sub!(/sha256\s+"[^"]+"/, %(sha256 "#{sha256}"))
 unless minimum_macos.empty?
   abort "Invalid minimum macOS version" unless minimum_macos.match?(/\A\d+\.\d+(?:\.\d+)?\z/)
-  replacement = %(depends_on macos: ">= #{minimum_macos}")
+  # Homebrew's macOS dependency DSL accepts named major releases, not minor
+  # versions. The app's Info.plist and Sparkle appcast retain the exact minimum.
+  releases = {
+    "11" => "big_sur", "12" => "monterey", "13" => "ventura",
+    "14" => "sonoma", "15" => "sequoia", "26" => "tahoe",
+    "27" => "golden_gate",
+  }
+  release = releases[minimum_macos.split(".").first]
+  abort "Unsupported minimum macOS version: #{minimum_macos}" unless release
+  replacement = %(depends_on macos: :#{release})
   abort "Missing macOS dependency in cask" unless contents.sub!(/depends_on macos: [^\n]+/, replacement)
 end
 File.write(path, contents)
