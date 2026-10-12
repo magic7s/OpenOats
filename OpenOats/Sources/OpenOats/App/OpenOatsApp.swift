@@ -652,6 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let plan = MenuBarNextMeeting.joinPlan(
             for: event,
             isRecording: coordinator.isRecording,
+            isFinishingRecording: isFinishingRecording(coordinator),
             hasRecordingConsent: settings.hasAcknowledgedRecordingConsent
         )
 
@@ -694,6 +695,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard !coordinator.isRecording else { return }
             self?.showMainWindow()
         }
+    }
+
+    private func isFinishingRecording(_ coordinator: AppCoordinator) -> Bool {
+        if case .ending = coordinator.state { return true }
+        return false
     }
 
     private func showMainWindow() {

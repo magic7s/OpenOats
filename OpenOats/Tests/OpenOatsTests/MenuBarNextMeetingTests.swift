@@ -244,27 +244,56 @@ final class MenuBarNextMeetingTests: XCTestCase {
         )
     }
 
-    // MARK: - Popover order
+    // MARK: - Popover sections
 
-    func testFeaturedFirstMovesFeaturedEventToFront() {
-        let running = makeEvent(id: "running", startsIn: -20 * 60, duration: 60 * 60)
-        let next = makeEvent(id: "next", startsIn: 5 * 60)
-        let later = makeEvent(id: "later", startsIn: 90 * 60)
-        XCTAssertEqual(
-            MenuBarNextMeeting.featuredFirst([running, next, later], featured: next).map(\.id),
-            ["next", "running", "later"]
+    func testListSectionsGiveFeaturedEventItsOwnHeader() {
+        let running = makeEvent(id: "running", startsIn: -15 * 60)
+        let afternoon = makeEvent(id: "afternoon", startsIn: 4 * 60 * 60)
+        let evening = makeEvent(id: "evening", startsIn: 6 * 60 * 60)
+        let sections = MenuBarNextMeeting.listSections(
+            for: [running, afternoon, evening], featured: running, now: now, calendar: utc
         )
+        XCTAssertEqual(sections.map(\.header), ["Happening now", nil])
+        XCTAssertEqual(sections.map { $0.events.map(\.id) }, [["running"], ["afternoon", "evening"]])
     }
 
-    func testFeaturedFirstLeavesOrderWhenFeaturedIsAbsent() {
-        let first = makeEvent(id: "first", startsIn: 5 * 60)
-        let second = makeEvent(id: "second", startsIn: 90 * 60)
-        XCTAssertEqual(MenuBarNextMeeting.featuredFirst([first, second], featured: nil).map(\.id), ["first", "second"])
-        let elsewhere = makeEvent(id: "elsewhere", startsIn: 30 * 60)
-        XCTAssertEqual(
-            MenuBarNextMeeting.featuredFirst([first, second], featured: elsewhere).map(\.id),
-            ["first", "second"]
-        )
+    func testListSectionsHeadUpcomingFeaturedEventWithCountdown() {
+        let running = makeEvent(id: "running", startsIn: -20 * 60, duration: 60 * 60)
+        let next = makeEvent(id: "next", startsIn: 5 * 60)
+        let sections = MenuBarNextMeeting.listSections(for: [running, next], featured: next, now: now, calendar: utc)
+        XCTAssertEqual(sections.map(\.header), ["Starts in 5m", nil])
+        XCTAssertEqual(sections.map { $0.events.map(\.id) }, [["next"], ["running"]])
+    }
+
+    func testListSectionsOmitDayGroupLeftEmptyByFeaturedEvent() {
+        let next = makeEvent(id: "next", startsIn: 5 * 60)
+        let tomorrow = makeEvent(id: "tomorrow", startsIn: 24 * 60 * 60)
+        let sections = MenuBarNextMeeting.listSections(for: [next, tomorrow], featured: next, now: now, calendar: utc)
+        XCTAssertEqual(sections.map { $0.events.map(\.id) }, [["next"], ["tomorrow"]])
+    }
+
+    func testListSectionsGroupByDayWhenNothingIsFeatured() {
+        let later = makeEvent(id: "later", startsIn: 3 * 60 * 60)
+        let tomorrow = makeEvent(id: "tomorrow", startsIn: 24 * 60 * 60)
+        let sections = MenuBarNextMeeting.listSections(for: [tomorrow, later], featured: nil, now: now, calendar: utc)
+        XCTAssertEqual(sections.map(\.header), [nil, nil])
+        XCTAssertEqual(sections.map { $0.events.map(\.id) }, [["later"], ["tomorrow"]])
+        XCTAssertEqual(Set(sections.map(\.id)).count, 2)
+    }
+
+    // MARK: - Row help
+
+    func testRowHelpDescribesWhatAClickDoes() {
+        let link = URL(string: "https://zoom.us/j/123")!
+        let online = makeEvent(id: "online", startsIn: 60, meetingURL: link)
+        let inPerson = makeEvent(id: "in-person", startsIn: 60)
+        XCTAssertEqual(MenuBarNextMeeting.rowHelp(for: online, isRecording: false), "Join and start recording")
+        XCTAssertEqual(MenuBarNextMeeting.rowHelp(for: inPerson, isRecording: false), "Start recording")
+        XCTAssertEqual(MenuBarNextMeeting.rowHelp(for: online, isRecording: true), "Join meeting")
+    }
+
+    func testRowHelpIsNilWhenAClickWouldDoNothing() {
+        XCTAssertNil(MenuBarNextMeeting.rowHelp(for: makeEvent(id: "in-person", startsIn: 60), isRecording: true))
     }
 
     // MARK: - Join plan
@@ -274,6 +303,7 @@ final class MenuBarNextMeetingTests: XCTestCase {
         let plan = MenuBarNextMeeting.joinPlan(
             for: makeEvent(id: "e", startsIn: 60, meetingURL: link),
             isRecording: false,
+            isFinishingRecording: false,
             hasRecordingConsent: true
         )
         XCTAssertEqual(
@@ -286,6 +316,7 @@ final class MenuBarNextMeetingTests: XCTestCase {
         let plan = MenuBarNextMeeting.joinPlan(
             for: makeEvent(id: "e", startsIn: 60),
             isRecording: false,
+            isFinishingRecording: false,
             hasRecordingConsent: true
         )
         XCTAssertEqual(
@@ -299,6 +330,7 @@ final class MenuBarNextMeetingTests: XCTestCase {
         let plan = MenuBarNextMeeting.joinPlan(
             for: makeEvent(id: "e", startsIn: 60, meetingURL: link),
             isRecording: true,
+            isFinishingRecording: false,
             hasRecordingConsent: true
         )
         XCTAssertEqual(
@@ -312,6 +344,7 @@ final class MenuBarNextMeetingTests: XCTestCase {
         let plan = MenuBarNextMeeting.joinPlan(
             for: makeEvent(id: "e", startsIn: 60, meetingURL: link),
             isRecording: false,
+            isFinishingRecording: false,
             hasRecordingConsent: false
         )
         XCTAssertEqual(
@@ -320,7 +353,28 @@ final class MenuBarNextMeetingTests: XCTestCase {
         )
     }
 
+    func testJoinPlanOpensLinkAndShowsMainWindowWhilePreviousRecordingFinishes() {
+        let link = URL(string: "https://zoom.us/j/123")!
+        let plan = MenuBarNextMeeting.joinPlan(
+            for: makeEvent(id: "e", startsIn: 60, meetingURL: link),
+            isRecording: false,
+            isFinishingRecording: true,
+            hasRecordingConsent: true
+        )
+        XCTAssertEqual(
+            plan,
+            MenuBarNextMeeting.JoinPlan(urlToOpen: link, startsRecording: false, showsMainWindow: true)
+        )
+    }
+
     // MARK: - Helpers
+
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
 
     private func countdown(secondsAway: TimeInterval) -> String {
         MenuBarNextMeeting.countdownText(until: now.addingTimeInterval(secondsAway), now: now)

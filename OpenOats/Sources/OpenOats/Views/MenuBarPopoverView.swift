@@ -160,39 +160,39 @@ struct MenuBarPopoverView: View {
     }
 
     private var upcomingSection: some View {
-        let groups = UpcomingCalendarGrouping.groups(for: meetings.events)
-        let featured = meetings.featuredEvent
+        let sections = MenuBarNextMeeting.listSections(
+            for: meetings.events,
+            featured: meetings.featuredEvent,
+            now: meetings.now
+        )
 
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(groups) { group in
-                Text(sectionHeader(for: group, featured: featured))
+            ForEach(sections) { section in
+                Text(sectionTitle(for: section))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.top, 6)
                     .padding(.bottom, 2)
 
-                ForEach(MenuBarNextMeeting.featuredFirst(group.events, featured: featured), id: \.self) { event in
+                ForEach(section.events, id: \.self) { event in
+                    let help = MenuBarNextMeeting.rowHelp(for: event, isRecording: coordinator.isRecording)
                     Button(action: { onJoinEvent(event) }) {
                         eventRow(event)
                     }
                     .buttonStyle(.plain)
+                    .disabled(help == nil)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 5)
-                    .help(event.meetingURL == nil ? "Start recording" : "Join and start recording")
+                    .help(help ?? "")
                 }
             }
         }
     }
 
-    private func sectionHeader(
-        for group: UpcomingCalendarGrouping.DayGroup,
-        featured: CalendarEvent?
-    ) -> String {
-        if let featured, group.events.contains(featured) {
-            return MenuBarNextMeeting.headerText(for: featured, now: meetings.now)
-        }
-        return group.sectionTitle
+    private func sectionTitle(for section: MenuBarNextMeeting.ListSection) -> String {
+        section.header
+            ?? UpcomingCalendarGrouping.DayGroup(date: section.day, events: section.events).sectionTitle
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {

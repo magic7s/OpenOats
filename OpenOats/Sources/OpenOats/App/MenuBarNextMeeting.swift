@@ -69,11 +69,54 @@ enum MenuBarNextMeeting {
             : remainingText(until: event.endDate, now: now)
     }
 
-    /// `events` with `featured` moved to the front; unchanged when it is absent.
+    /// One headed block of rows in the popover.
+    struct ListSection: Equatable, Identifiable {
+        /// Set for the featured meeting's own block; nil means "use the day's title".
+        let header: String?
+        let day: Date
+        let events: [CalendarEvent]
+
+        var id: String {
+            header == nil ? "day-\(day.timeIntervalSince1970)" : "featured"
+        }
+    }
+
+    /// The popover's rows: the featured meeting alone under its own header
+    /// (`Starts in 5m`, `Happening now`), then every other event grouped by day.
     /// Compares whole events, not ids: occurrences of a recurring event share an id.
-    static func featuredFirst(_ events: [CalendarEvent], featured: CalendarEvent?) -> [CalendarEvent] {
-        guard let featured, events.contains(featured) else { return events }
-        return [featured] + events.filter { $0 != featured }
+    static func listSections(
+        for events: [CalendarEvent],
+        featured: CalendarEvent?,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> [ListSection] {
+        var sections: [ListSection] = []
+        var rest = events
+        if let featured, events.contains(featured) {
+            sections.append(ListSection(
+                header: headerText(for: featured, now: now),
+                day: calendar.startOfDay(for: featured.startDate),
+                events: [featured]
+            ))
+            rest.removeAll { $0 == featured }
+        }
+
+        let byDay = Dictionary(grouping: rest) { calendar.startOfDay(for: $0.startDate) }
+        for day in byDay.keys.sorted() {
+            sections.append(ListSection(header: nil, day: day, events: ordered(byDay[day] ?? [])))
+        }
+        return sections
+    }
+
+    /// Tooltip for a popover row, or nil when clicking it would do nothing
+    /// (already recording and the event has no link to open).
+    static func rowHelp(for event: CalendarEvent, isRecording: Bool) -> String? {
+        switch (isRecording, event.meetingURL != nil) {
+        case (false, true): return "Join and start recording"
+        case (false, false): return "Start recording"
+        case (true, true): return "Join meeting"
+        case (true, false): return nil
+        }
     }
 
     static func truncatedTitle(_ title: String, maxLength: Int = maxTitleLength) -> String {
@@ -102,14 +145,19 @@ enum MenuBarNextMeeting {
     }
 
     /// What clicking a meeting does. The link always opens; a recording starts
-    /// only when none is running and the user has acknowledged recording consent.
+    /// only when none is running or finishing and the user has acknowledged
+    /// recording consent. When a start is refused the main window explains why.
     static func joinPlan(
         for event: CalendarEvent,
         isRecording: Bool,
+        isFinishingRecording: Bool,
         hasRecordingConsent: Bool
     ) -> JoinPlan {
         if isRecording {
             return JoinPlan(urlToOpen: event.meetingURL, startsRecording: false, showsMainWindow: false)
+        }
+        if isFinishingRecording {
+            return JoinPlan(urlToOpen: event.meetingURL, startsRecording: false, showsMainWindow: true)
         }
         guard hasRecordingConsent else {
             return JoinPlan(urlToOpen: event.meetingURL, startsRecording: false, showsMainWindow: true)
