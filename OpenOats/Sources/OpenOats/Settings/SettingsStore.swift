@@ -887,6 +887,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _showNextMeetingInMenuBar: Bool
+    var showNextMeetingInMenuBar: Bool {
+        get { access(keyPath: \.showNextMeetingInMenuBar); return _showNextMeetingInMenuBar }
+        set {
+            withMutation(keyPath: \.showNextMeetingInMenuBar) {
+                _showNextMeetingInMenuBar = newValue
+                defaults.set(newValue, forKey: "showNextMeetingInMenuBar")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _customMeetingAppBundleIDs: [String]
     var customMeetingAppBundleIDs: [String] {
         get { access(keyPath: \.customMeetingAppBundleIDs); return _customMeetingAppBundleIDs }
@@ -1581,6 +1592,7 @@ final class SettingsStore {
         self._autoRecordDetectedMeetings = defaults.bool(forKey: "autoRecordDetectedMeetings")
         self._showMiniBar = defaults.object(forKey: "showMiniBar") as? Bool ?? true
         self._showMenuBarIcon = defaults.object(forKey: "showMenuBarIcon") as? Bool ?? true
+        self._showNextMeetingInMenuBar = defaults.object(forKey: "showNextMeetingInMenuBar") as? Bool ?? true
         self._customMeetingAppBundleIDs = Self.normalizedIdentifierList(
             defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? [],
             caseInsensitive: true
